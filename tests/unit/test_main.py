@@ -1,4 +1,4 @@
-from iskra.main import main
+from neptune_migration.main import main
 
 
 def test_main():
