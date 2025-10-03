@@ -4,7 +4,7 @@
 
 - **organisation/project** → such division does not seem to exist
   - we can just add it to the experiment name
-  - or ask user for an (optional) prefix for each project (as a cli param) and just import runs as they are in the data loading step
+  - or ask user for an (optional) prefix for each project (as a cli param) and import runs as they are in the data loading step
 
 - **experiment** → experiment
 - **run** → run
@@ -16,12 +16,12 @@
 - **attribute path** → attribute key
   - mlflow key constraints: This string may only contain alphanumerics, underscores (_), dashes (-), periods (.), spaces ( ), and slashes (/). All backend stores will support keys up to length 250, but some may support larger keys.
   - neptune path constraints: MAX_ATTRIBUTE_PATH_LENGTH = 1024
-  - neptune accepts much longer paths, especially if we additionally attempt to prepend them with the project... could attempt to contract the name and hope that users rarely use paths longer that 250.
+  - neptune accepts much longer paths, especially if we additionally attempt to prepend them with the project... could attempt to contract the name and hope that users rarely use paths longer than 250.
 
 - **configs** → params
   - neptune: float, int, string, bool, datetime
   - mlflow: all values are stringified
-  - Since all values are stringified, uploading our values won't be a problem. Recreating our model from the mlflow would be though.
+  - Since all values are stringified, uploading our values won't be a problem. Recreating our model from MLflow would be though.
 
 - **tags** → tags
   - mlflow has tags. Use mlflow.set_tag or set on start_run
@@ -73,6 +73,7 @@
   - See https://docs.wandb.ai/ref/python/experiments/run/#method-runlog
 
   - w&b run.log supports scalars (int, float, string), images, video, audio, histograms, plots, html, and tables - meaning our float/string/histogram series should be covered
+
 - **string series** → log strings
 - **histogram series** → log histrograms
 
@@ -80,7 +81,7 @@
   - See https://docs.wandb.ai/guides/artifacts/
 
 - **file series** → artifacts?
-  - artifacts do not seem to be associated with a step. Specific files like images, videos, etc. can be, but it'd be risky to map our files to either metrics or artifacts dpeending on their mimetype. Probably should just include the step in the artifact name.
+  - artifacts do not seem to be associated with a step. Specific files like images, videos, etc. can be, but it'd be risky to map our files to either metrics or artifacts depending on their mimetype. Probably should just include the step in the artifact name.
 
 - **source code** → code
-  - neptune optionally logs some source code (under path `source_code/`). It would be an UI improvement to log it as a code using `log_code`
+  - neptune optionally logs some source code (under path `source_code/`). It would be a UI improvement to log it as code using `log_code`
