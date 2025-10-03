@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pyarrow as pa
 from typing import NewType, Optional, Sequence
 from pathlib import Path
 import neptune_query as nq
@@ -64,23 +65,26 @@ class Neptune3Exporter:
         project_id: ProjectId,
         run_ids: list[RunId],
         attributes: str | Sequence[str],
-    ) -> None:
-        _df = nq_runs.fetch_runs_table(  # index="run", cols="attribute" (=path)
-            project=project_id,
-            runs=run_ids,
-            attributes=AttributeFilter(name=attributes, type=_PARAMETER_TYPES),
-            sort_by=Attribute(name="sys/id", type="string"),
-            sort_direction="asc",
-            type_suffix_in_column_names=True,
+    ) -> pa.RecordBatch:
+        parameters_df = (
+            nq_runs.fetch_runs_table(  # index="run", cols="attribute" (=path)
+                project=project_id,
+                runs=run_ids,
+                attributes=AttributeFilter(name=attributes, type=_PARAMETER_TYPES),
+                sort_by=Attribute(name="sys/id", type="string"),
+                sort_direction="asc",
+                type_suffix_in_column_names=True,
+            )
         )
+        return pa.RecordBatch.from_pandas(parameters_df)
 
     def download_metrics(
         self,
         project_id: ProjectId,
         run_ids: list[RunId],
         attributes: str | Sequence[str],
-    ) -> None:
-        _df = nq_runs.fetch_metrics(  # index=["run", "step"], column="path"
+    ) -> pa.RecordBatch:
+        metrics_df = nq_runs.fetch_metrics(  # index=["run", "step"], column="path"
             project=project_id,
             runs=run_ids,
             attributes=AttributeFilter(name=attributes, type=_METRIC_TYPES),
@@ -88,14 +92,15 @@ class Neptune3Exporter:
             lineage_to_the_root=False,
             type_suffix_in_column_names=True,
         )
+        return pa.RecordBatch.from_pandas(metrics_df)
 
     def download_series(
         self,
         project_id: ProjectId,
         run_ids: list[RunId],
         attributes: str | Sequence[str],
-    ) -> None:
-        _df = nq_runs.fetch_series(  # index=["run", "step"], column="path"
+    ) -> pa.RecordBatch:
+        series_df = nq_runs.fetch_series(  # index=["run", "step"], column="path"
             project=project_id,
             runs=run_ids,
             attributes=AttributeFilter(name=attributes, type=_SERIES_TYPES),
@@ -103,6 +108,7 @@ class Neptune3Exporter:
             lineage_to_the_root=False,
             ype_suffix_in_column_names=True,
         )
+        return pa.RecordBatch.from_pandas(series_df)
 
     def download_artifacts(
         self,
@@ -110,7 +116,7 @@ class Neptune3Exporter:
         run_ids: list[RunId],
         attributes: str | Sequence[str],
         destination: Path,
-    ) -> None:
+    ) -> pa.RecordBatch:
         files_df = nq_runs.fetch_runs_table(  # index="run", cols="attribute" (=path)
             project=project_id,
             runs=run_ids,
@@ -129,14 +135,16 @@ class Neptune3Exporter:
             ype_suffix_in_column_names=True,
         )
 
-        _file_paths_df = nq_runs.download_files(  # index=["run", "step"], column="path"
+        file_paths_df = nq_runs.download_files(  # index=["run", "step"], column="path"
             files=files_df,
             destination=destination,
         )
 
-        _file_series_paths_df = (
+        file_series_paths_df = (
             nq_runs.download_files(  # index=["run", "step"], column="path"
                 files=files_series_df,
                 destination=destination,
             )
         )
+
+        return pa.stack_batches([file_paths_df, file_series_paths_df])
