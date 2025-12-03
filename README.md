@@ -141,8 +141,9 @@ All records use `src/neptune_exporter/model.py::SCHEMA`:
 ## Export flow
 
 - Runs are listed per project and streamed in batches. Already-exported runs (those with `part_0.parquet`) are skipped so reruns are resumable.
-    > [!WARNING]
-    > Use this with care: if a run was exported and later received new data in Neptune, that new data will not be picked up unless you re-export to a fresh location.
+
+> [!WARNING]
+> Use this with care: if a run was exported and later received new data in Neptune, that new data will not be picked up unless you re-export to a fresh location.
 
 - Data is written per run into parquet parts (~50 MB compressed per part), keeping memory usage low.
 - Artifacts and file series are downloaded alongside parquet under `--files-path/<sanitized_project_id>/...`.
