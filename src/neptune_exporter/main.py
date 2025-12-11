@@ -359,7 +359,7 @@ def export(
 )
 @click.option(
     "--loader",
-    type=click.Choice(["mlflow", "wandb"], case_sensitive=False),
+    type=click.Choice(["mlflow", "wandb", "zenml"], case_sensitive=False),
     help="Target platform loader to use.",
 )
 @click.option(
@@ -515,6 +515,24 @@ def load(
             show_client_logs=verbose,
         )
         loader_name = "W&B"
+    elif loader == "zenml":
+        from neptune_exporter.loaders.zenml_loader import (
+            ZenMLLoader,
+            ZENML_AVAILABLE,
+        )
+
+        if not ZENML_AVAILABLE:
+            raise click.BadParameter(
+                "ZenML loader selected but zenml is not installed. "
+                "Install with `pip install 'neptune-exporter[zenml]'` and "
+                "ensure you are logged into a ZenML server (e.g., via `zenml login`)."
+            )
+
+        data_loader = ZenMLLoader(
+            name_prefix=name_prefix,
+            show_client_logs=verbose,
+        )
+        loader_name = "ZenML"
     else:
         raise click.BadParameter(f"Unknown loader: {loader}")
 
