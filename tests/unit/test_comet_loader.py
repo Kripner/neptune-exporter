@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import sys
+import tempfile
 import pandas as pd
 import pyarrow as pa
 from decimal import Decimal
@@ -415,12 +416,15 @@ def test_upload_artifacts_string_series():
     with patch(
         "neptune_exporter.loaders.comet_loader.tempfile.NamedTemporaryFile"
     ) as mock_temp_file:
-        # Mock temporary file
+        # Mock temporary file (code doesn't use context manager)
         mock_file = Mock()
-        mock_file.name = "/tmp/test_series.txt"
+        # Use cross-platform temp path
+        mock_file.name = str(Path(tempfile.gettempdir()) / "test_series.txt")
         mock_file.write = Mock()
         mock_file.flush = Mock()
-        mock_temp_file.return_value.__enter__.return_value = mock_file
+        mock_file.close = Mock()
+        # Code doesn't use 'with', so return_value should be the mock_file directly
+        mock_temp_file.return_value = mock_file
 
         files_base_path = Path("/test/files")
         loader.upload_artifacts(
