@@ -209,7 +209,8 @@ All records use `src/neptune_exporter/model.py::SCHEMA`:
   - Comet: logged as `histogram_3d`.
 - **Files** (`file`) and **file series** (`file_series`):
   - Downloaded to `--files-path/<sanitized_project_id>/...` with relative paths stored in `file_value.path`.
-  - MLflow/W&B/Comet: uploaded as artifacts/assets. File series include the step in the artifact name/path so steps remain distinguishable. Comet detects images and uploads them as images.
+  - MLflow/W&B: uploaded as artifacts. File series include the step in the artifact name/path so steps remain distinguishable.
+  - Comet: uploaded as assets. Comet detects images and uploads them as images.
 - **Attribute names**:
   - MLflow: sanitized to allowed chars (alphanumeric + `_-. /`), truncated at 250 chars.
   - W&B: sanitized to allowed pattern (`^[_a-zA-Z][_a-zA-Z0-9]*$`); invalid chars become `_`, and names are forced to start with a letter or underscore.
