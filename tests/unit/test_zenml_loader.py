@@ -560,6 +560,7 @@ def test_upload_files_as_artifacts_with_save_artifact(tmp_path: Path) -> None:
     # Use valid UUIDs for all IDs
     artifact_version_uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     model_version_uuid = "669e2121-d812-4ce2-9738-6b6be3a004a3"
+    model_uuid = "12345678-1234-1234-1234-123456789abc"
 
     # Mock the ZenML artifact version response
     mock_artifact_version = Mock()
@@ -569,6 +570,10 @@ def test_upload_files_as_artifacts_with_save_artifact(tmp_path: Path) -> None:
     mock_model_version = Mock()
     mock_model_version.id = PyUUID(model_version_uuid)
     mock_client.get_model_version.return_value = mock_model_version
+
+    # Pre-populate the model version -> model mapping
+    # (normally done by create_run, but we're testing a private method)
+    loader._mv_to_model_cache[model_version_uuid] = model_uuid
 
     file_refs = {"files/artifacts/model": ["artifact/model.pkl"]}
     all_metadata: dict = {}
@@ -656,6 +661,7 @@ def test_upload_artifact_to_zenml_handles_directory(tmp_path: Path) -> None:
     # Use valid UUIDs for all IDs
     artifact_version_uuid = "b1b2c3d4-e5f6-7890-abcd-ef1234567890"
     model_version_uuid = "669e2121-d812-4ce2-9738-6b6be3a004a3"
+    model_uuid = "12345678-1234-1234-1234-123456789abc"
 
     mock_artifact_version = Mock()
     mock_artifact_version.id = PyUUID(artifact_version_uuid)
@@ -664,9 +670,22 @@ def test_upload_artifact_to_zenml_handles_directory(tmp_path: Path) -> None:
     mock_zen_store = Mock()
     mock_client.zen_store = mock_zen_store
 
-    with patch(
-        "neptune_exporter.loaders.zenml_loader.save_artifact",
-    ) as mock_save_artifact:
+    # Pre-populate the model version -> model mapping
+    loader._mv_to_model_cache[model_version_uuid] = model_uuid
+
+    # Mock model version response for get_model_version
+    mock_model_version = Mock()
+    mock_model_version.id = PyUUID(model_version_uuid)
+    mock_client.get_model_version.return_value = mock_model_version
+
+    with (
+        patch(
+            "neptune_exporter.loaders.zenml_loader.save_artifact",
+        ) as mock_save_artifact,
+        patch(
+            "neptune_exporter.loaders.zenml_loader.link_artifact_version_to_model_version",
+        ),
+    ):
         mock_save_artifact.return_value = mock_artifact_version
 
         result = loader._upload_artifact_to_zenml(
@@ -678,12 +697,11 @@ def test_upload_artifact_to_zenml_handles_directory(tmp_path: Path) -> None:
 
     assert result == artifact_version_uuid
 
-    # Verify DirectoryMaterializer was used (check materializer argument)
+    # Verify PathMaterializer was used (handles both files and directories)
     save_call_kwargs = mock_save_artifact.call_args[1]
-    # The materializer should be DirectoryMaterializer for directories
-    from neptune_exporter.loaders.zenml_loader import DirectoryMaterializer
+    from zenml.materializers import PathMaterializer
 
-    assert save_call_kwargs["materializer"] == DirectoryMaterializer
+    assert save_call_kwargs["materializer"] == PathMaterializer
 
 
 def test_upload_artifact_to_zenml_handles_single_file(tmp_path: Path) -> None:
@@ -699,6 +717,7 @@ def test_upload_artifact_to_zenml_handles_single_file(tmp_path: Path) -> None:
     # Use valid UUIDs for all IDs
     artifact_version_uuid = "c1b2c3d4-e5f6-7890-abcd-ef1234567890"
     model_version_uuid = "669e2121-d812-4ce2-9738-6b6be3a004a3"
+    model_uuid = "12345678-1234-1234-1234-123456789abc"
 
     mock_artifact_version = Mock()
     mock_artifact_version.id = PyUUID(artifact_version_uuid)
@@ -707,9 +726,22 @@ def test_upload_artifact_to_zenml_handles_single_file(tmp_path: Path) -> None:
     mock_zen_store = Mock()
     mock_client.zen_store = mock_zen_store
 
-    with patch(
-        "neptune_exporter.loaders.zenml_loader.save_artifact",
-    ) as mock_save_artifact:
+    # Pre-populate the model version -> model mapping
+    loader._mv_to_model_cache[model_version_uuid] = model_uuid
+
+    # Mock model version response for get_model_version
+    mock_model_version = Mock()
+    mock_model_version.id = PyUUID(model_version_uuid)
+    mock_client.get_model_version.return_value = mock_model_version
+
+    with (
+        patch(
+            "neptune_exporter.loaders.zenml_loader.save_artifact",
+        ) as mock_save_artifact,
+        patch(
+            "neptune_exporter.loaders.zenml_loader.link_artifact_version_to_model_version",
+        ),
+    ):
         mock_save_artifact.return_value = mock_artifact_version
 
         result = loader._upload_artifact_to_zenml(
@@ -721,8 +753,8 @@ def test_upload_artifact_to_zenml_handles_single_file(tmp_path: Path) -> None:
 
     assert result == artifact_version_uuid
 
-    # Verify FileMaterializer was used for files
+    # Verify PathMaterializer was used (handles both files and directories)
     save_call_kwargs = mock_save_artifact.call_args[1]
-    from neptune_exporter.loaders.zenml_loader import FileMaterializer
+    from zenml.materializers import PathMaterializer
 
-    assert save_call_kwargs["materializer"] == FileMaterializer
+    assert save_call_kwargs["materializer"] == PathMaterializer

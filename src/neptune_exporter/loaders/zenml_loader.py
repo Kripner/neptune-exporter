@@ -30,21 +30,16 @@ and ensure you are logged into a ZenML server (e.g., via `zenml login`).
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import mkdtemp
 from typing import (
     TYPE_CHECKING,
     Any,
-    ClassVar,
     Dict,
     Generator,
     Optional,
     Set,
-    Tuple,
-    Type,
 )
 
 import pandas as pd
@@ -61,9 +56,7 @@ try:
     from zenml import log_metadata
     from zenml.artifacts.utils import save_artifact
     from zenml.model.utils import link_artifact_version_to_model_version
-    from zenml.enums import ArtifactType
-    from zenml.materializers.base_materializer import BaseMaterializer
-    from zenml.io import fileio
+    from zenml.materializers import PathMaterializer
 
     ZENML_AVAILABLE = True
 except Exception:  # pragma: no cover - exercised only when zenml is missing
@@ -71,120 +64,8 @@ except Exception:  # pragma: no cover - exercised only when zenml is missing
     log_metadata = None  # type: ignore[assignment,misc]
     save_artifact = None  # type: ignore[assignment]
     link_artifact_version_to_model_version = None  # type: ignore[assignment]
-    ArtifactType = None  # type: ignore[assignment,misc]
-    BaseMaterializer = object  # type: ignore[assignment,misc]
-    fileio = None  # type: ignore[assignment]
+    PathMaterializer = None  # type: ignore[assignment,misc]
     ZENML_AVAILABLE = False
-
-
-class DirectoryMaterializer(BaseMaterializer):  # type: ignore[misc]
-    """Materializer to store local directories in the ZenML artifact store.
-
-    This materializer is adapted from ZenML's example DirectoryMaterializer
-    and allows uploading entire directory structures as artifacts.
-    """
-
-    ASSOCIATED_TYPES: ClassVar[Tuple[Type[Any], ...]] = (Path,)
-    ASSOCIATED_ARTIFACT_TYPE: ClassVar[Any] = (
-        ArtifactType.DATA if ArtifactType is not None else None  # type: ignore[truthy-function]
-    )
-
-    def load(self, data_type: Type[Any]) -> Any:
-        """Copy the artifact files to a local temp directory.
-
-        Args:
-            data_type: Unused.
-
-        Returns:
-            Path to the local directory that contains the artifact files.
-        """
-        directory = mkdtemp(prefix="zenml-artifact")
-        self._copy_directory(src=self.uri, dst=directory)
-        return Path(directory)
-
-    def save(self, data: Any) -> None:
-        """Store the directory in the artifact store.
-
-        Args:
-            data: Path to a local directory to store.
-        """
-        assert isinstance(data, Path)
-        self._copy_directory(src=str(data), dst=self.uri)
-        # Note: We do NOT delete the local directory here, unlike the original
-        # ZenML example, because we want to keep the export data intact.
-
-    def _copy_directory(self, src: str, dst: str) -> None:
-        """Recursively copy a directory.
-
-        Args:
-            src: The directory to copy.
-            dst: Where to copy the directory to.
-        """
-        if fileio is None:
-            raise RuntimeError("ZenML fileio not available")
-
-        for src_dir_raw, _, files in fileio.walk(src):
-            # fileio.walk may return bytes or str, normalize to str
-            src_dir = (
-                src_dir_raw.decode() if isinstance(src_dir_raw, bytes) else src_dir_raw
-            )
-            dst_dir = os.path.join(dst, os.path.relpath(src_dir, src))
-            fileio.makedirs(dst_dir)
-
-            for file_raw in files:
-                file = file_raw.decode() if isinstance(file_raw, bytes) else file_raw
-                src_file = os.path.join(src_dir, file)
-                dst_file = os.path.join(dst_dir, file)
-                fileio.copy(src_file, dst_file)
-
-
-class FileMaterializer(BaseMaterializer):  # type: ignore[misc]
-    """Materializer to store a single file in the ZenML artifact store.
-
-    This is used for individual files rather than directories.
-    """
-
-    ASSOCIATED_TYPES: ClassVar[Tuple[Type[Any], ...]] = (Path,)
-    ASSOCIATED_ARTIFACT_TYPE: ClassVar[Any] = (
-        ArtifactType.DATA if ArtifactType is not None else None  # type: ignore[truthy-function]
-    )
-
-    def load(self, data_type: Type[Any]) -> Any:
-        """Copy the artifact file to a local temp directory.
-
-        Args:
-            data_type: Unused.
-
-        Returns:
-            Path to the local file.
-        """
-        if fileio is None:
-            raise RuntimeError("ZenML fileio not available")
-
-        # Get the filename from the uri
-        files = fileio.listdir(self.uri)
-        if not files:
-            raise RuntimeError(f"No files found in artifact URI: {self.uri}")
-
-        src_file = os.path.join(self.uri, files[0])
-        temp_dir = mkdtemp(prefix="zenml-artifact")
-        dst_file = os.path.join(temp_dir, files[0])
-        fileio.copy(src_file, dst_file)
-        return Path(dst_file)
-
-    def save(self, data: Any) -> None:
-        """Store the file in the artifact store.
-
-        Args:
-            data: Path to a local file to store.
-        """
-        if fileio is None:
-            raise RuntimeError("ZenML fileio not available")
-
-        assert isinstance(data, Path)
-        fileio.makedirs(self.uri)
-        dst_file = os.path.join(self.uri, data.name)
-        fileio.copy(str(data), dst_file)
 
 
 @dataclass
@@ -233,6 +114,10 @@ class ZenMLLoader(DataLoader):
 
         # Cache mapping Neptune ProjectId -> ZenML Model ID (wrapped as TargetExperimentId)
         self._project_model_cache: Dict[ProjectId, TargetExperimentId] = {}
+
+        # Cache mapping model_version_id -> model_id for artifact linking
+        # (ZenML's get_model_version requires both model and version identifiers)
+        self._mv_to_model_cache: Dict[str, str] = {}
 
         # Configure ZenML logging verbosity so CLI flags behave consistently
         zenml_logger = logging.getLogger("zenml")
@@ -662,8 +547,17 @@ class ZenMLLoader(DataLoader):
         if not hasattr(self, "_mv_cache"):
             self._mv_cache: Dict[str, "ModelVersionResponse"] = {}
 
+        # ZenML's get_model_version() requires both model_id and model_version_id
+        model_id = self._mv_to_model_cache.get(model_version_id)
+        if not model_id:
+            self._logger.warning(
+                "Cannot fetch model version '%s': no model_id mapping found",
+                model_version_id,
+            )
+            return None
+
         try:
-            mv = self._client.get_model_version(model_version_id)
+            mv = self._client.get_model_version(model_id, model_version_id)
             self._mv_cache[cache_key] = mv
             return mv
         except Exception:
@@ -707,18 +601,12 @@ class ZenMLLoader(DataLoader):
             return None
 
         try:
-            # Choose materializer based on whether it's a directory or file
-            materializer_class: Type[Any]
-            if local_path.is_dir():
-                materializer_class = DirectoryMaterializer
-            else:
-                materializer_class = FileMaterializer
-
-            # Save the artifact to ZenML
+            # Save the artifact to ZenML using PathMaterializer
+            # (handles both files and directories automatically)
             artifact_version = save_artifact(
                 data=local_path,
                 name=artifact_name,
-                materializer=materializer_class,
+                materializer=PathMaterializer,
                 tags=[
                     "neptune-import",
                     f"neptune-attribute:{neptune_attr_path}",
@@ -1074,6 +962,10 @@ class ZenMLLoader(DataLoader):
                 )
 
             target_run_id = TargetRunId(str(mv_id))
+
+            # Store mapping for later artifact linking (get_model_version needs both IDs)
+            self._mv_to_model_cache[str(mv_id)] = str(experiment_id)
+
             self._logger.info(
                 "Created ZenML model version '%s' (id=%s) for Neptune run '%s'",
                 getattr(mv, "name", version_name),
