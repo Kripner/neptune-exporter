@@ -361,7 +361,9 @@ def export(
 )
 @click.option(
     "--loader",
-    type=click.Choice(["mlflow", "wandb", "litlogger", "zenml", "comet"], case_sensitive=False),
+    type=click.Choice(
+        ["mlflow", "wandb", "litlogger", "zenml", "comet"], case_sensitive=False
+    ),
     help="Target platform loader to use.",
 )
 @click.option(
