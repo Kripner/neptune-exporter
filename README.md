@@ -28,7 +28,7 @@ Neptune Exporter is a CLI tool to move Neptune experiments (version `2.x` or `3.
   - ZenML server connection via `zenml login` (see [ZenML docs](https://docs.zenml.io/deploying-zenml/connecting-to-zenml/connect-in-with-your-user-interactive)).
   - Comet workspace and API key, set with `COMET_WORKSPACE`/`--comet-workspace` and `COMET_API_KEY`/`--comet-api-key`.
   - Lightning AI LitLogger requires auth credentials (set via `lightning login` or `--litlogger-user-id` and `--litlogger-api-key`). Optionally specify `--litlogger-owner` for the user or organization name where teamspaces will be created (defaults to the authenticated user).
-  - Minfx (Neptune v2) project and API token, set with `MINFX_PROJECT`/`--minfx-project` and `MINFX_API_TOKEN`/`--minfx-api-token`.
+  - Minfx project and API token, set with `MINFX_PROJECT`/`--minfx-project` and `MINFX_API_TOKEN`/`--minfx-api-token`.
 
 ## Installation
 
@@ -88,6 +88,7 @@ Options:
 | `--include-archived-runs`                | Include archived/trashed runs.                                                                                                                                                                                                                                                                |
 | `--api-token`                            | Pass the token explicitly instead of using the `NEPTUNE_API_TOKEN` environment variable.                                                                                                                                                                                                      |
 | `--no-progress`, `-v`/`--verbose`, `--log-file` | Progress and logging controls for the CLI.                                                                                                                                                                                                                                                    |
+| `--runs-query` | `neptune2` only: Specify [Neptune Query Language](https://docs-legacy.neptune.ai/usage/nql/) syntax to filter runs to export.|
 
 #### Export examples
 
@@ -110,6 +111,12 @@ Export with Neptune `2.x` client, splitting data and files to different location
 ```bash
 uv run neptune-exporter export -p "workspace/proj" --exporter neptune2 --data-path /mnt/fast/exports/data --files-path /mnt/cold/exports/files
 ```
+
+Export with Neptune `2.x` client, filtering runs using Neptune Query Language (NQL), for example by date range:
+```bash
+uv run neptune-exporter export -p "workspace/proj" --exporter neptune2 --runs-query '`sys/creation_time`:datetime > "2024-02-06T05:00:00Z"'
+```
+
 
 ### 2. Inspect what was exported:
 
@@ -163,8 +170,7 @@ uv run neptune-exporter export -p "workspace/proj" --exporter neptune2 --data-pa
     --data-path ./exports/data \
     --files-path ./exports/files
 
-  # Minfx (Neptune v2 compatible)
-  # Note: Must export with --exporter neptune2 for minfx compatibility
+  # Minfx
   uv run neptune-exporter load \
     --loader minfx \
     --minfx-project "target-workspace/target-project" \
@@ -249,7 +255,7 @@ All records use `src/neptune_exporter/model.py::SCHEMA`:
   - Neptune runs become Experiments within their project's teamspace, named after the `run_id` (plus optional `--name-prefix`), max 64 chars.
   - Parameters are stored as experiment metadata (searchable/filterable in the UI). Metrics use integer steps (`--step-multiplier` applied).
   - Files and artifacts are uploaded preserving directory structure. String series become `.txt` files, histograms become PNG images.
-- **Minfx (Neptune v2) loader**:
+- **Minfx loader**:
   - **Important**: Data must be exported with `--exporter neptune2` for compatibility.
   - Requires `--minfx-project` and `--minfx-api-token` (or environment variables).
   - Uses Neptune v2 API via `minfx.neptune_v2` to recreate runs in a Neptune-compatible backend.
@@ -281,7 +287,7 @@ All records use `src/neptune_exporter/model.py::SCHEMA`:
   - Neptune `project_id` maps to a Lightning.ai Teamspace (created automatically if it doesn't exist, sanitized to max 64 chars).
   - Neptune runs become Experiments within their project's teamspace, named after `run_id` (or `custom_run_id`, plus optional `--name-prefix`, max 64 chars).
   - Neptune's `sys/name` is stored as metadata (`neptune_project` and `neptune_run`) for traceability. Fork relationships are not natively supported.
-- **Minfx (Neptune v2):**
+- **Minfx:**
   - All data goes to the target project specified by `--minfx-project`; original `project_id` is stored in `import/original_project_id` for traceability.
   - Neptune's `sys/name` (experiment name) becomes the run's `sys/name` in the target Neptune v2 instance.
   - Original `run_id` is stored in `import/original_run_id` (not `sys/custom_run_id`) to avoid polluting the system namespace.
