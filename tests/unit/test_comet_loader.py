@@ -17,6 +17,7 @@ import sys
 import tempfile
 import pandas as pd
 import pyarrow as pa
+import pytest
 from decimal import Decimal
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
@@ -133,6 +134,7 @@ def test_create_run(mock_experiment_class):
     """Test creating a Comet run."""
     mock_experiment = Mock()
     mock_experiment.id = "comet-run-123"
+    mock_experiment.alive = True
     mock_experiment_class.return_value = mock_experiment
 
     loader = CometLoader(workspace="test-workspace")
@@ -147,6 +149,26 @@ def test_create_run(mock_experiment_class):
     assert call_kwargs["log_code"] is False
     assert call_kwargs["auto_param_logging"] is False
     mock_experiment.set_name.assert_called_once_with("run-name")
+
+
+@patch("neptune_exporter.loaders.comet_loader.comet_ml.Experiment")
+def test_create_run_fails_when_experiment_not_alive(mock_experiment_class):
+    """Test that create_run raises when Comet backend did not start the experiment."""
+    mock_experiment = Mock()
+    mock_experiment.id = "comet-run-123"
+    mock_experiment.alive = False
+    mock_experiment_class.return_value = mock_experiment
+
+    loader = CometLoader(workspace="test-workspace")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        loader.create_run("test-project", "run-name", "experiment-id")
+
+    msg = str(exc_info.value)
+    assert "Comet experiment could not be started" in msg
+    assert "COMET_API_KEY" in msg
+    assert "network" in msg
+    assert "status.comet.com" in msg
 
 
 def test_upload_parameters():
@@ -615,6 +637,7 @@ def test_upload_run_data():
     ):
         mock_experiment = Mock()
         mock_experiment.id = "test-run-id"
+        mock_experiment.alive = True
         mock_experiment_class.return_value = mock_experiment
 
         # Create run first

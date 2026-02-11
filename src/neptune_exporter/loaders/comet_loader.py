@@ -523,6 +523,16 @@ class CometLoader(DataLoader):
             )
             self._comet_experiment.set_name(run_name)
 
+            if not getattr(self._comet_experiment, "alive", False):
+                raise RuntimeError(
+                    "Comet experiment could not be started: backend authentication or "
+                    "experiment creation failed. The experiment cannot log data. "
+                    "Check: (1) COMET_API_KEY is valid and has access to the workspace, "
+                    "(2) network connectivity to Comet, "
+                    "(3) https://status.comet.com for service status. "
+                    "See Comet client logs above for details."
+                )
+
             self._logger.info(
                 f"Created Comet experiment '{run_name}' with ID {self._comet_experiment.id}"
             )
