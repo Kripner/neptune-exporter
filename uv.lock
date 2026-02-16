@@ -896,6 +896,15 @@ wheels = [
 ]
 
 [[package]]
+name = "goodseed"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/68/14570940ccb5226032b355631f77f535c7ca6969b2537c9418caa8441a0e/goodseed-0.2.3.tar.gz", hash = "sha256:e806228d78e861c7e79a0dcb4f1e1bcfdb934724344d095bf0b51e9a3a191f68", size = 50595, upload-time = "2026-02-11T19:04:24.495Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/84/05998b7d564bd35ac40533d52c549fbaa2ddb3612f2975f4d2157c935ff1/goodseed-0.2.3-py3-none-any.whl", hash = "sha256:c85930c32ec20a8d28538402a2fac09ff0ded9b4d98117a07f48f25b85e5fd81", size = 17122, upload-time = "2026-02-11T19:04:22.539Z" },
+]
+
+[[package]]
 name = "google-auth"
 version = "2.45.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1971,6 +1980,9 @@ dependencies = [
 cometml = [
     { name = "comet-ml" },
 ]
+goodseed = [
+    { name = "goodseed" },
+]
 litlogger = [
     { name = "litlogger" },
     { name = "matplotlib" },
@@ -2005,6 +2017,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.1.0,<9.0.0" },
     { name = "comet-ml", marker = "extra == 'cometml'", specifier = ">=3.55.0" },
+    { name = "goodseed", marker = "extra == 'goodseed'" },
     { name = "litlogger", marker = "extra == 'litlogger'", specifier = ">=0.1.0,<0.2.0" },
     { name = "matplotlib", marker = "extra == 'litlogger'" },
     { name = "minfx", marker = "extra == 'minfx'" },
@@ -2017,7 +2030,7 @@ requires-dist = [
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.22.3,<1.0.0" },
     { name = "zenml", marker = "extra == 'zenml'", specifier = ">=0.90.0,<1.0.0" },
 ]
-provides-extras = ["mlflow", "wandb", "zenml", "cometml", "litlogger", "minfx", "pluto"]
+provides-extras = ["mlflow", "wandb", "zenml", "cometml", "litlogger", "minfx", "pluto", "goodseed"]
 
 [package.metadata.requires-dev]
 dev = [
