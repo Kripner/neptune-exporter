@@ -400,7 +400,7 @@ class GoodseedLoader(DataLoader):
             project=self._pending_run["project"],
             run_id=self._pending_run["run_name"],
             created_at=created_at,
-            log_remote=False,
+            storage="local",
         )
 
         # Log Neptune origin metadata as configs
