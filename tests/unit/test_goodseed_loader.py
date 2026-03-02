@@ -26,9 +26,8 @@ from neptune_exporter import model
 
 
 def _make_loader(**kwargs):
-    """Create a GoodseedLoader with goodseed mocked as available."""
-    with patch("neptune_exporter.loaders.goodseed_loader.GOODSEED_AVAILABLE", True):
-        return GoodseedLoader(**kwargs)
+    """Create a GoodseedLoader."""
+    return GoodseedLoader(**kwargs)
 
 
 def _make_table(data: dict) -> pa.Table:
@@ -65,10 +64,8 @@ def _table_gen(*tables):
 
 
 def test_init_raises_without_goodseed():
-    """Test that init raises when goodseed is not installed."""
-    with patch("neptune_exporter.loaders.goodseed_loader.GOODSEED_AVAILABLE", False):
-        with pytest.raises(RuntimeError, match="GoodSeed is not installed"):
-            GoodseedLoader()
+    """Goodseed import is now required at module import time."""
+    pytest.skip("No runtime GOODSEED_AVAILABLE flag; import-time dependency is required.")
 
 
 # find_run
@@ -92,6 +89,84 @@ def test_find_run_exists():
     with patch("goodseed.config.get_run_db_path", return_value=mock_path):
         result = loader.find_run("test-project", "RUN-123", None)
         assert result == "RUN-123"
+
+
+def test_find_run_remote_exists():
+    """Remote mode should remap foreign workspace and detect existing run ID."""
+    loader = _make_loader(storage_mode="remote", goodseed_api_key="gsk_test")
+
+    with (
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.list_workspaces",
+            return_value=[{"id": "default"}],
+            create=True,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.whoami",
+            return_value={"name": "default", "workspace": "default"},
+            create=True,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.ensure_project",
+            return_value={"name": "foreign_proj", "created": True},
+            create=True,
+        ) as ensure_project_mock,
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.list_runs",
+            return_value=[{"run_id": "RUN-123"}],
+            create=True,
+        ) as list_runs_mock,
+    ):
+        result = loader.find_run("foreign/proj", "RUN-123", None)
+        assert result == "RUN-123"
+        ensure_project_mock.assert_called_once_with(
+            workspace="default",
+            project_name="foreign_proj",
+            storage="remote",
+            api_key="gsk_test",
+        )
+        list_runs_mock.assert_called_once_with(
+            workspace="default",
+            project_name="foreign_proj",
+            storage="remote",
+            api_key="gsk_test",
+        )
+
+
+def test_find_run_remote_not_found():
+    """Remote mode should preserve same-workspace project names when absent."""
+    loader = _make_loader(storage_mode="remote", goodseed_api_key="gsk_test")
+
+    with (
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.list_workspaces",
+            return_value=[{"id": "default"}],
+            create=True,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.whoami",
+            return_value={"name": "default"},
+            create=True,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.ensure_project",
+            return_value={"name": "proj", "created": False},
+            create=True,
+        ) as ensure_project_mock,
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.list_runs",
+            return_value=[],
+            create=True,
+        ),
+    ):
+        result = loader.find_run("default/proj", "RUN-123", None)
+        assert result is None
+        ensure_project_mock.assert_called_once_with(
+            workspace="default",
+            project_name="proj",
+            storage="remote",
+            api_key="gsk_test",
+        )
 
 
 # create_run
@@ -404,8 +479,8 @@ def test_upload_string_series():
             _table_gen(table), "RUN-1", Path("/files"), step_multiplier=1
         )
 
-    assert mock_run.log_string_series.call_count == 2
-    calls = mock_run.log_string_series.call_args_list
+    assert mock_run.log_strings.call_count == 2
+    calls = mock_run.log_strings.call_args_list
     assert calls[0] == call({"logs/info": "Training started"}, step=0)
     assert calls[1] == call({"logs/info": "Epoch 1 done"}, step=1)
 
@@ -434,7 +509,7 @@ def test_upload_string_series_missing_step_defaults_to_zero():
             _table_gen(table), "RUN-1", Path("/files"), step_multiplier=1
         )
 
-    mock_run.log_string_series.assert_called_once_with(
+    mock_run.log_strings.assert_called_once_with(
         {"logs/info": "No step provided"}, step=0
     )
 
@@ -477,14 +552,14 @@ def test_upload_skips_unsupported_types():
     # Run should complete successfully despite unsupported types
     mock_run.close.assert_called_once()
     mock_run.log_metrics.assert_not_called()
-    mock_run.log_string_series.assert_not_called()
+    mock_run.log_strings.assert_not_called()
 
 
 # upload_run_data - metadata extraction from sys/ attributes
 
 
 def test_experiment_name_from_sys_name():
-    """Test that sys/name is used as experiment_name for the GoodSeed Run."""
+    """Test that sys/name is passed as name for the GoodSeed Run."""
     loader = _make_loader()
     mock_run = Mock()
 
@@ -507,7 +582,8 @@ def test_experiment_name_from_sys_name():
 
     mock_run_class.assert_called_once()
     _, kwargs = mock_run_class.call_args
-    assert kwargs["experiment_name"] == "my-experiment-name"
+    assert kwargs["name"] == "my-experiment-name"
+    assert kwargs["run_id"] == "RUN-1"
 
 
 def test_created_at_from_sys_creation_time():

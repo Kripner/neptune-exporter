@@ -26,13 +26,9 @@ import pyarrow as pa
 from neptune_exporter.loaders.loader import DataLoader
 from neptune_exporter.types import ProjectId, TargetExperimentId, TargetRunId
 
-try:
-    import goodseed
-
-    GOODSEED_AVAILABLE = True
-except ImportError:
-    GOODSEED_AVAILABLE = False
-    goodseed = None  # type: ignore
+import goodseed
+import goodseed.config as goodseed_config
+from goodseed.sync import upload_run as sync_upload_run
 
 
 # Neptune sys/ attributes to skip (platform internals + attributes extracted separately).
@@ -83,8 +79,9 @@ class GoodseedLoader(DataLoader):
 
     def __init__(
         self,
-        goodseed_home: Optional[str] = None,
+        storage_mode: str = "auto",
         goodseed_project: Optional[str] = None,
+        goodseed_api_key: Optional[str] = None,
         name_prefix: Optional[str] = None,
         show_client_logs: bool = False,
     ):
@@ -92,21 +89,32 @@ class GoodseedLoader(DataLoader):
         Initialize GoodSeed loader.
 
         Args:
-            goodseed_home: Override for GoodSeed data directory (default: ~/.goodseed).
-                Can also be set via GOODSEED_HOME environment variable.
+            storage_mode: Target mode: ``auto``, ``local`` (sqlite files), or
+                ``remote`` (API). ``auto`` selects ``remote`` when API key is set.
             goodseed_project: Override project name for all imported runs. If not set,
                 uses the Neptune project ID directly.
+            goodseed_api_key: API key for remote mode.
             name_prefix: Optional prefix for run names.
             show_client_logs: Enable verbose logging (unused, kept for interface consistency).
         """
-        if not GOODSEED_AVAILABLE:
+        normalized_storage = storage_mode.lower()
+        if normalized_storage not in {"auto", "local", "remote"}:
             raise RuntimeError(
-                "GoodSeed is not installed. Install with "
-                "`pip install 'neptune-exporter[goodseed]'` to use the GoodSeed loader."
+                f"Invalid GoodSeed storage mode: {storage_mode!r}. "
+                "Use 'auto', 'local', or 'remote'."
+            )
+        if normalized_storage == "auto":
+            normalized_storage = "remote" if goodseed_api_key else "local"
+        self._storage_mode = normalized_storage
+
+        if self._storage_mode == "remote" and not goodseed_api_key:
+            raise RuntimeError(
+                "GoodSeed API key is required in remote mode. "
+                "Set GOODSEED_API_KEY or pass --goodseed-api-key."
             )
 
-        self._goodseed_home = goodseed_home
         self._goodseed_project = goodseed_project
+        self._goodseed_api_key = goodseed_api_key
         self._name_prefix = name_prefix
         self._logger = logging.getLogger(__name__)
 
@@ -114,6 +122,9 @@ class GoodseedLoader(DataLoader):
         self._active_run: Optional[Any] = None
         self._current_run_id: Optional[TargetRunId] = None
         self._pending_run: Optional[Dict[str, Any]] = None
+        self._remote_project_cache: Dict[str, Dict[str, Any]] = {}
+        self._whoami_name: Optional[str] = None
+        self._warned_remaps: set[str] = set()
 
         # Track warnings to avoid spamming
         self._warned_file_skip = False
@@ -130,6 +141,67 @@ class GoodseedLoader(DataLoader):
         if self._goodseed_project:
             return self._goodseed_project
         return project_id
+
+    def _resolve_remote_target_project(self, source_project_id: str) -> dict[str, Any]:
+        cached = self._remote_project_cache.get(source_project_id)
+        if cached is not None:
+            return cached
+
+        source_workspace = ""
+        source_project = source_project_id
+        parts = source_project_id.split("/", 1)
+        if len(parts) == 2 and parts[0] and parts[1]:
+            source_workspace, source_project = parts
+
+        if self._whoami_name is None:
+            profile = goodseed.whoami(api_key=self._goodseed_api_key or "")
+            whoami_name = profile.get("name")
+            if not whoami_name:
+                raise RuntimeError("Could not resolve user name from whoami response.")
+            self._whoami_name = str(whoami_name)
+
+        workspace = source_workspace or self._whoami_name
+        if source_workspace:
+            available = {str(item.get("id")) for item in goodseed.list_workspaces(
+                storage="remote",
+                api_key=self._goodseed_api_key,
+            ) if item.get("id")}
+            if source_workspace not in available:
+                workspace = self._whoami_name
+
+        target_project = self._goodseed_project or source_project
+        remapped = False
+        if (
+            self._goodseed_project is None
+            and source_workspace
+            and source_workspace != workspace
+        ):
+            target_project = f"{source_workspace}_{source_project}"
+            remapped = True
+
+        payload = goodseed.ensure_project(
+            workspace=workspace,
+            project_name=target_project,
+            storage="remote",
+            api_key=self._goodseed_api_key,
+        )
+        info = {
+            "workspace": workspace,
+            "project": payload.get("name", target_project),
+            "remapped": remapped,
+        }
+        self._remote_project_cache[source_project_id] = info
+
+        warning_key = f"{source_project_id}->{info['workspace']}/{info['project']}"
+        if info["remapped"] and warning_key not in self._warned_remaps:
+            self._warned_remaps.add(warning_key)
+            self._logger.warning(
+                "Source project '%s' mapped to default workspace target '%s/%s'.",
+                source_project_id,
+                info["workspace"],
+                info["project"],
+            )
+        return info
 
     def _convert_step(self, step: Decimal, step_multiplier: int) -> int:
         """Convert Neptune decimal step to GoodSeed integer step."""
@@ -162,17 +234,41 @@ class GoodseedLoader(DataLoader):
         Looks for the SQLite file at the expected path. If found, returns the
         run ID so LoaderManager can skip re-importing.
         """
-        from goodseed.config import get_run_db_path
-
         gs_run_name = self._get_run_name(run_name)
-        gs_project = self._get_project(project_id)
+        if self._storage_mode == "remote":
+            return self._find_remote_run(project_id, gs_run_name)
 
-        db_path = get_run_db_path(gs_project, gs_run_name, self._goodseed_home)
+        gs_project = self._get_project(project_id)
+        db_path = goodseed_config.get_run_db_path(gs_project, gs_run_name)
         if db_path.exists():
             self._logger.info(
                 f"Run '{gs_run_name}' already exists in project '{gs_project}', skipping."
             )
             return TargetRunId(gs_run_name)
+        return None
+
+    def _find_remote_run(
+        self,
+        project_id: ProjectId,
+        gs_run_name: str,
+    ) -> Optional[TargetRunId]:
+        """Check run existence in remote GoodSeed project using list-runs API."""
+        target = self._resolve_remote_target_project(project_id)
+        runs = goodseed.list_runs(
+            workspace=target["workspace"],
+            project_name=target["project"],
+            storage="remote",
+            api_key=self._goodseed_api_key,
+        )
+        for run in runs:
+            if run.get("run_id") == gs_run_name:
+                self._logger.info(
+                    "Run '%s' already exists in remote project '%s/%s', skipping.",
+                    gs_run_name,
+                    target["workspace"],
+                    target["project"],
+                )
+                return TargetRunId(gs_run_name)
         return None
 
     def create_run(
@@ -192,10 +288,16 @@ class GoodseedLoader(DataLoader):
         """
         gs_run_name = self._get_run_name(run_name)
         gs_project = self._get_project(project_id)
+        remote_workspace = None
+        if self._storage_mode == "remote":
+            target = self._resolve_remote_target_project(project_id)
+            remote_workspace = target["workspace"]
+            gs_project = f"{remote_workspace}/{target['project']}"
 
         self._pending_run = {
             "run_name": gs_run_name,
             "project": gs_project,
+            "remote_workspace": remote_workspace,
             "project_id": project_id,
             "original_run_name": run_name,
             "experiment_name": str(experiment_id) if experiment_id else None,
@@ -244,6 +346,11 @@ class GoodseedLoader(DataLoader):
             # Close the run
             if self._active_run is not None:
                 self._active_run.close()
+                if self._storage_mode == "remote":
+                    self._sync_remote_run(
+                        project=self._pending_run["project"],
+                        run_id=self._pending_run["run_name"],
+                    )
                 self._logger.info(f"Successfully uploaded run {run_id} to GoodSeed")
 
         except Exception:
@@ -292,8 +399,8 @@ class GoodseedLoader(DataLoader):
             name=experiment_name,
             project=self._pending_run["project"],
             run_id=self._pending_run["run_name"],
-            goodseed_home=self._goodseed_home,
             created_at=created_at,
+            log_remote=False,
         )
 
         # Log Neptune origin metadata as configs
@@ -307,6 +414,15 @@ class GoodseedLoader(DataLoader):
             origin_configs["neptune/fork_step"] = self._pending_run["fork_step"]
 
         self._active_run.log_configs(origin_configs)
+
+    def _sync_remote_run(self, *, project: str, run_id: str) -> None:
+        """Delegate remote upload to the GoodSeed package uploader."""
+        if not self._goodseed_api_key:
+            raise RuntimeError("Missing GoodSeed API key for remote upload.")
+        db_path = goodseed_config.get_run_db_path(project, run_id)
+        if not db_path.exists():
+            raise RuntimeError(f"Run database not found for remote upload: {db_path}")
+        sync_upload_run(db_path, self._goodseed_api_key)
 
     # Parameter upload
 
