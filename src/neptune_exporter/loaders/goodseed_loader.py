@@ -207,8 +207,6 @@ class GoodseedLoader(DataLoader):
 
     def _convert_step(self, step: Decimal, step_multiplier: int) -> int:
         """Convert Neptune decimal step to GoodSeed integer step."""
-        if step is None:
-            return 0
         return int(float(step) * step_multiplier)
 
     # DataLoader interface
