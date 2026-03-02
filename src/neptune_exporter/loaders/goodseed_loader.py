@@ -147,13 +147,6 @@ class GoodseedLoader(DataLoader):
         if cached is not None:
             return cached
 
-        override_workspace = None
-        override_project = self._goodseed_project
-        if self._goodseed_project:
-            parts = self._goodseed_project.split("/", 1)
-            if len(parts) == 2 and parts[0] and parts[1]:
-                override_workspace, override_project = parts
-
         source_workspace = ""
         source_project = source_project_id
         parts = source_project_id.split("/", 1)
@@ -167,23 +160,25 @@ class GoodseedLoader(DataLoader):
                 raise RuntimeError("Could not resolve user name from /auth/me response.")
             self._me_name = str(me_name)
 
-        workspace = override_workspace or source_workspace or self._me_name
-        if source_workspace and not override_workspace:
-            available = {str(item.get("id")) for item in goodseed.list_workspaces(
-                storage="remote",
-                api_key=self._goodseed_api_key,
-            ) if item.get("id")}
-            if source_workspace not in available:
-                workspace = self._me_name
+        requested_workspace = source_workspace
+        requested_project = source_project
+        if self._goodseed_project:
+            parts = self._goodseed_project.split("/", 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                requested_workspace, requested_project = parts
+            else:
+                requested_workspace = ""
+                requested_project = self._goodseed_project
 
-        target_project = override_project or source_project
+        workspace = requested_workspace or self._me_name
+        target_project = requested_project
         remapped = False
-        if (
-            override_project is None
-            and source_workspace
-            and source_workspace != workspace
-        ):
-            target_project = f"{source_workspace}_{source_project}"
+
+        # Always write to the authenticated user's workspace.
+        # Cross-workspace projects are namespaced as "<workspace>_<project>".
+        if requested_workspace and requested_workspace != self._me_name:
+            workspace = self._me_name
+            target_project = f"{requested_workspace}_{requested_project}"
             remapped = True
 
         payload = goodseed.ensure_project(
