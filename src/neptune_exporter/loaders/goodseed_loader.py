@@ -147,6 +147,13 @@ class GoodseedLoader(DataLoader):
         if cached is not None:
             return cached
 
+        override_workspace = None
+        override_project = self._goodseed_project
+        if self._goodseed_project:
+            parts = self._goodseed_project.split("/", 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                override_workspace, override_project = parts
+
         source_workspace = ""
         source_project = source_project_id
         parts = source_project_id.split("/", 1)
@@ -160,8 +167,8 @@ class GoodseedLoader(DataLoader):
                 raise RuntimeError("Could not resolve user name from /auth/me response.")
             self._me_name = str(me_name)
 
-        workspace = source_workspace or self._me_name
-        if source_workspace:
+        workspace = override_workspace or source_workspace or self._me_name
+        if source_workspace and not override_workspace:
             available = {str(item.get("id")) for item in goodseed.list_workspaces(
                 storage="remote",
                 api_key=self._goodseed_api_key,
@@ -169,10 +176,10 @@ class GoodseedLoader(DataLoader):
             if source_workspace not in available:
                 workspace = self._me_name
 
-        target_project = self._goodseed_project or source_project
+        target_project = override_project or source_project
         remapped = False
         if (
-            self._goodseed_project is None
+            override_project is None
             and source_workspace
             and source_workspace != workspace
         ):

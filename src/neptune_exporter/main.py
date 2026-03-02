@@ -1192,10 +1192,12 @@ def load(
                 "Set GOODSEED_API_KEY or pass --goodseed-api-key."
             )
         if goodseed_storage == "remote" and goodseed_project and "/" in goodseed_project:
-            raise click.BadParameter(
-                "In GoodSeed remote mode, --goodseed-project must be a project name only "
-                "(no workspace prefix)."
-            )
+            parts = goodseed_project.split("/", 1)
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise click.BadParameter(
+                    "In GoodSeed remote mode, --goodseed-project must be either "
+                    "'project' or 'workspace/project'."
+                )
 
         data_loader = GoodseedLoader(
             storage_mode=goodseed_storage,
