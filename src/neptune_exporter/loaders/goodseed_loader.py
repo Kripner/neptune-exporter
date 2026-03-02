@@ -70,8 +70,8 @@ class GoodseedLoader(DataLoader):
     - Run           -> Run (SQLite file)
     - Parameters    -> Configs (log_configs)
     - Float Series  -> Metrics (log_metrics)
-    - String Series -> String Series (log_string_series)
-    - sys/name      -> experiment_name
+    - String Series -> String Series (log_strings)
+    - sys/name      -> name
     - Files         -> Skipped (not supported)
     - Histograms    -> Skipped (not supported)
 
@@ -289,9 +289,9 @@ class GoodseedLoader(DataLoader):
                         created_at = pd.Timestamp(val).isoformat()
 
         self._active_run = goodseed.Run(
-            experiment_name=experiment_name,
+            name=experiment_name,
             project=self._pending_run["project"],
-            run_name=self._pending_run["run_name"],
+            run_id=self._pending_run["run_name"],
             goodseed_home=self._goodseed_home,
             created_at=created_at,
         )
@@ -388,7 +388,7 @@ class GoodseedLoader(DataLoader):
                     if pd.notna(row.step)
                     else 0
                 )
-                self._active_run.log_string_series(
+                self._active_run.log_strings(
                     {row.attribute_path: str(row.string_value)}, step=step
                 )
 
