@@ -102,7 +102,7 @@ def test_find_run_remote_exists():
             create=True,
         ),
         patch(
-            "neptune_exporter.loaders.goodseed_loader.goodseed.whoami",
+            "neptune_exporter.loaders.goodseed_loader.goodseed.me",
             return_value={"name": "default", "workspace": "default"},
             create=True,
         ),
@@ -144,7 +144,7 @@ def test_find_run_remote_not_found():
             create=True,
         ),
         patch(
-            "neptune_exporter.loaders.goodseed_loader.goodseed.whoami",
+            "neptune_exporter.loaders.goodseed_loader.goodseed.me",
             return_value={"name": "default"},
             create=True,
         ),

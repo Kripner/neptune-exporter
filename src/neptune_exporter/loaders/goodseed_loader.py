@@ -123,7 +123,7 @@ class GoodseedLoader(DataLoader):
         self._current_run_id: Optional[TargetRunId] = None
         self._pending_run: Optional[Dict[str, Any]] = None
         self._remote_project_cache: Dict[str, Dict[str, Any]] = {}
-        self._whoami_name: Optional[str] = None
+        self._me_name: Optional[str] = None
         self._warned_remaps: set[str] = set()
 
         # Track warnings to avoid spamming
@@ -153,21 +153,21 @@ class GoodseedLoader(DataLoader):
         if len(parts) == 2 and parts[0] and parts[1]:
             source_workspace, source_project = parts
 
-        if self._whoami_name is None:
-            profile = goodseed.whoami(api_key=self._goodseed_api_key or "")
-            whoami_name = profile.get("name")
-            if not whoami_name:
-                raise RuntimeError("Could not resolve user name from whoami response.")
-            self._whoami_name = str(whoami_name)
+        if self._me_name is None:
+            profile = goodseed.me(api_key=self._goodseed_api_key or "")
+            me_name = profile.get("name")
+            if not me_name:
+                raise RuntimeError("Could not resolve user name from /auth/me response.")
+            self._me_name = str(me_name)
 
-        workspace = source_workspace or self._whoami_name
+        workspace = source_workspace or self._me_name
         if source_workspace:
             available = {str(item.get("id")) for item in goodseed.list_workspaces(
                 storage="remote",
                 api_key=self._goodseed_api_key,
             ) if item.get("id")}
             if source_workspace not in available:
-                workspace = self._whoami_name
+                workspace = self._me_name
 
         target_project = self._goodseed_project or source_project
         remapped = False
