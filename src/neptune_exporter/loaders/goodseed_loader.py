@@ -54,16 +54,17 @@ _FILE_TYPES = {"file", "file_series", "file_set", "artifact"}
 
 class GoodseedLoader(DataLoader):
     """
-    Loads Neptune data from parquet files into GoodSeed local experiment tracker.
+    Loads Neptune data from parquet files into GoodSeed experiment tracker.
 
-    This loader migrates experiment data from Neptune to GoodSeed's local SQLite
-    storage. GoodSeed operates entirely locally with no server or authentication
-    required.
+    Supports two storage modes:
+    - **local**: Writes directly to GoodSeed's local SQLite storage (default).
+    - **remote**: Writes to local SQLite first, then uploads to a GoodSeed
+      server via API. Requires an API key.
 
     Neptune Concept -> GoodSeed Concept
     ------------------------------------
-    - Project       -> Project (passed through as-is)
-    - Run           -> Run (SQLite file)
+    - Project       -> Project (passed through or remapped for remote)
+    - Run           -> Run (SQLite file, optionally synced to server)
     - Parameters    -> Configs (log_configs)
     - Float Series  -> Metrics (log_metrics)
     - String Series -> String Series (log_strings)
@@ -157,7 +158,9 @@ class GoodseedLoader(DataLoader):
             profile = goodseed.me(api_key=self._goodseed_api_key or "")
             me_name = profile.get("name")
             if not me_name:
-                raise RuntimeError("Could not resolve user name from /auth/me response.")
+                raise RuntimeError(
+                    "Could not resolve user name from /auth/me response."
+                )
             self._me_name = str(me_name)
 
         requested_workspace = source_workspace

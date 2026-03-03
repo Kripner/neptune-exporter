@@ -1162,8 +1162,15 @@ def load(
         loader_name = "Minfx"
         info_always(logger, f"  Minfx project: {minfx_project}")
     elif loader == "goodseed":
-        from neptune_exporter.loaders.goodseed_loader import GoodseedLoader
         from neptune_exporter.loaders import GOODSEED_AVAILABLE
+
+        if not GOODSEED_AVAILABLE:
+            raise click.BadParameter(
+                "GoodSeed loader selected but goodseed is not installed. "
+                "Install with `uv sync --extra goodseed`."
+            )
+
+        from neptune_exporter.loaders.goodseed_loader import GoodseedLoader
 
         if not goodseed_api_key:
             goodseed_api_key = os.getenv("GOODSEED_API_KEY")
@@ -1177,12 +1184,6 @@ def load(
                 "GOODSEED_STORAGE must be one of: auto, local, remote."
             )
 
-        if goodseed_storage == "local" and not GOODSEED_AVAILABLE:
-            raise click.BadParameter(
-                "GoodSeed loader selected but goodseed is not installed. "
-                "Install with `uv sync --extra goodseed`."
-            )
-
         if not goodseed_project:
             goodseed_project = os.getenv("GOODSEED_PROJECT")
 
@@ -1191,9 +1192,10 @@ def load(
                 "GoodSeed API key is required in remote mode. "
                 "Set GOODSEED_API_KEY or pass --goodseed-api-key."
             )
-        if goodseed_storage == "remote" and goodseed_project and "/" in goodseed_project:
-            parts = goodseed_project.split("/", 1)
-            if len(parts) != 2 or not parts[0] or not parts[1]:
+        if goodseed_storage == "remote" and goodseed_project:
+            if goodseed_project.count("/") > 1 or (
+                "/" in goodseed_project and not all(goodseed_project.split("/", 1))
+            ):
                 raise click.BadParameter(
                     "In GoodSeed remote mode, --goodseed-project must be either "
                     "'project' or 'workspace/project'."

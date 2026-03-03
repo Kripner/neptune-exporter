@@ -21,6 +21,8 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+pytest.importorskip("goodseed")
+
 from neptune_exporter.loaders.goodseed_loader import GoodseedLoader
 from neptune_exporter import model
 
@@ -64,8 +66,12 @@ def _table_gen(*tables):
 
 
 def test_init_raises_without_goodseed():
-    """Goodseed import is now required at module import time."""
-    pytest.skip("No runtime GOODSEED_AVAILABLE flag; import-time dependency is required.")
+    """When goodseed is not installed, __init__.py sets GOODSEED_AVAILABLE=False."""
+    # The actual import guard lives in loaders/__init__.py (try/except).
+    # We verify GOODSEED_AVAILABLE is True when the package IS installed.
+    from neptune_exporter.loaders import GOODSEED_AVAILABLE
+
+    assert GOODSEED_AVAILABLE is True
 
 
 # find_run
@@ -96,11 +102,6 @@ def test_find_run_remote_exists():
     loader = _make_loader(storage_mode="remote", goodseed_api_key="gsk_test")
 
     with (
-        patch(
-            "neptune_exporter.loaders.goodseed_loader.goodseed.list_workspaces",
-            return_value=[{"id": "default"}],
-            create=True,
-        ),
         patch(
             "neptune_exporter.loaders.goodseed_loader.goodseed.me",
             return_value={"name": "default", "workspace": "default"},
@@ -139,11 +140,6 @@ def test_find_run_remote_not_found():
 
     with (
         patch(
-            "neptune_exporter.loaders.goodseed_loader.goodseed.list_workspaces",
-            return_value=[{"id": "default"}],
-            create=True,
-        ),
-        patch(
             "neptune_exporter.loaders.goodseed_loader.goodseed.me",
             return_value={"name": "default"},
             create=True,
@@ -167,6 +163,85 @@ def test_find_run_remote_not_found():
             storage="remote",
             api_key="gsk_test",
         )
+
+
+# upload_run_data - remote sync
+
+
+def test_remote_sync_called_on_success():
+    """Remote mode should call sync_upload_run after closing the run."""
+    loader = _make_loader(storage_mode="remote", goodseed_api_key="gsk_test")
+    mock_run = Mock()
+    mock_db_path = Mock(spec=Path)
+    mock_db_path.exists.return_value = True
+
+    table = _make_table(
+        {
+            "attribute_path": ["config/lr"],
+            "attribute_type": ["float"],
+            "float_value": [0.01],
+        }
+    )
+
+    with (
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.Run",
+            return_value=mock_run,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.me",
+            return_value={"name": "default"},
+            create=True,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.ensure_project",
+            return_value={"name": "proj", "created": False},
+            create=True,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed_config.get_run_db_path",
+            return_value=mock_db_path,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.sync_upload_run",
+        ) as mock_sync,
+    ):
+        loader.create_run("default/proj", "RUN-1")
+        loader.upload_run_data(
+            _table_gen(table), "RUN-1", Path("/files"), step_multiplier=1
+        )
+
+    mock_sync.assert_called_once_with(mock_db_path, "gsk_test")
+
+
+def test_local_mode_does_not_call_sync():
+    """Local mode should not invoke sync_upload_run."""
+    loader = _make_loader(storage_mode="local")
+    mock_run = Mock()
+
+    table = _make_table(
+        {
+            "attribute_path": ["config/lr"],
+            "attribute_type": ["float"],
+            "float_value": [0.01],
+        }
+    )
+
+    with (
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.goodseed.Run",
+            return_value=mock_run,
+        ),
+        patch(
+            "neptune_exporter.loaders.goodseed_loader.sync_upload_run",
+        ) as mock_sync,
+    ):
+        loader.create_run("test-project", "RUN-1")
+        loader.upload_run_data(
+            _table_gen(table), "RUN-1", Path("/files"), step_multiplier=1
+        )
+
+    mock_sync.assert_not_called()
 
 
 # create_run
