@@ -378,13 +378,15 @@ class GoodseedLoader(DataLoader):
         if self._pending_run is None:
             raise RuntimeError("No pending run")
 
-        # Extract sys/name and sys/creation_time from data
+        # Extract sys/name, sys/creation_time, and sys/modification_time from data
         experiment_name = self._pending_run["experiment_name"]
         created_at = None
+        modified_at = None
 
         for attr_path, attr_type, col in [
             ("sys/name", "string", "string_value"),
             ("sys/creation_time", "datetime", "datetime_value"),
+            ("sys/modification_time", "datetime", "datetime_value"),
         ]:
             rows = run_df[
                 (run_df["attribute_path"] == attr_path)
@@ -395,14 +397,17 @@ class GoodseedLoader(DataLoader):
                 if pd.notna(val):
                     if attr_path == "sys/name":
                         experiment_name = str(val)
-                    else:
+                    elif attr_path == "sys/creation_time":
                         created_at = pd.Timestamp(val).isoformat()
+                    elif attr_path == "sys/modification_time":
+                        modified_at = pd.Timestamp(val).isoformat()
 
         self._active_run = goodseed.Run(
             name=experiment_name,
             project=self._pending_run["project"],
             run_id=self._pending_run["run_name"],
             created_at=created_at,
+            modified_at=modified_at,
             storage="local",
         )
 
