@@ -332,6 +332,7 @@ class GoodseedLoader(DataLoader):
         if self._pending_run is None or self._current_run_id != run_id:
             raise RuntimeError(f"Run {run_id} is not prepared. Call create_run first.")
 
+        run_closed = False
         try:
             first_chunk = True
             for run_data_part in run_data:
@@ -346,9 +347,10 @@ class GoodseedLoader(DataLoader):
                 self._upload_string_series(run_df, step_multiplier)
                 self._warn_skipped_types(run_df)
 
-            # Close the run
+            # Close the run locally first (sync needs the finalized DB)
             if self._active_run is not None:
                 self._active_run.close()
+                run_closed = True
                 if self._storage_mode == "remote":
                     self._sync_remote_run(
                         project=self._pending_run["project"],
@@ -358,7 +360,7 @@ class GoodseedLoader(DataLoader):
 
         except Exception:
             self._logger.error(f"Error uploading data for run {run_id}", exc_info=True)
-            if self._active_run is not None:
+            if self._active_run is not None and not run_closed:
                 try:
                     self._active_run.close(status="failed")
                 except Exception:

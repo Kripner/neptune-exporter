@@ -65,10 +65,8 @@ def _table_gen(*tables):
 # Initialization
 
 
-def test_init_raises_without_goodseed():
-    """When goodseed is not installed, __init__.py sets GOODSEED_AVAILABLE=False."""
-    # The actual import guard lives in loaders/__init__.py (try/except).
-    # We verify GOODSEED_AVAILABLE is True when the package IS installed.
+def test_goodseed_available_when_installed():
+    """Verify that GOODSEED_AVAILABLE is True when the goodseed package is installed."""
     from neptune_exporter.loaders import GOODSEED_AVAILABLE
 
     assert GOODSEED_AVAILABLE is True
